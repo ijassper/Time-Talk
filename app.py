@@ -81,9 +81,6 @@ if prompt := st.chat_input("역사에 대해 궁금한 점을 질문해보세요
 
     # 답변 생성 (실제 API 연동 시 OpenAI 호출부)
     with st.chat_message("assistant"):
-        # API 호출 함수 실행
-        # st.secrets["OPENAI_API_KEY"]를 사용하여 보안 유지
-        openai.api_key = st.secrets["OPENAI_API_KEY"] 
         
         # 실제 답변 생성
         response_text = get_persona_answer(char_name, prompt, char_data)
@@ -91,4 +88,4 @@ if prompt := st.chat_input("역사에 대해 궁금한 점을 질문해보세요
         full_response = response_text + f"\n\n🔗 [근거 자료 확인하기]({char_data['url']})"
         st.markdown(full_response)
         
-    st.session_state.messages.append({"role": "assistant", "content": full_response})
+    # st.session_state.messages.append({"role": "assistant", "content": full_response})
