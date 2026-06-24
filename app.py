@@ -55,7 +55,7 @@ def get_persona_answer(char_name, user_question, char_data):
     
     # 3. LLM에게 질문 (OpenAI API 호출 예시)
     try:
-        response = openai.ChatCompletion.create(
+        response = client.ChatCompletion.create(
             model="gpt-4o",
             messages=[
                 {"role": "system", "content": f"{system_prompt}\n{context}\n답변 시 출처 정보를 하단에 반드시 제공하세요."},
@@ -88,4 +88,4 @@ if prompt := st.chat_input("역사에 대해 궁금한 점을 질문해보세요
         full_response = response_text + f"\n\n🔗 [근거 자료 확인하기]({char_data['url']})"
         st.markdown(full_response)
         
-    # st.session_state.messages.append({"role": "assistant", "content": full_response})
+    st.session_state.messages.append({"role": "assistant", "content": full_response})
