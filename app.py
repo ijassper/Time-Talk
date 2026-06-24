@@ -1,7 +1,7 @@
 import streamlit as st
+import openai
 
 # [1. 데이터베이스] - 공공데이터를 딕셔너리로 구조화
-# 실제로는 외부 json 파일을 불러오는 방식을 권장합니다.
 knowledge_base = {
     "유관순": {
         "img": "yugwansun.png",
@@ -43,6 +43,28 @@ with col2:
     st.write(f"### {char_name} 의사/열사")
     st.info(f"**학습 페르소나:** {char_data['persona']}")
 
+# RAG생성
+def get_persona_answer(char_name, user_question, char_data):
+    # 1. 시스템 설정 (인물의 페르소나 주입)
+    system_prompt = f"당신은 {char_name}입니다. {char_data['persona']}"
+    
+    # 2. 지식 주입 (우리가 가진 사실 데이터)
+    context = f"다음은 당신의 삶에 대한 역사적 사실입니다: {char_data['fact']}"
+    
+    # 3. LLM에게 질문 (OpenAI API 호출 예시)
+    # 실제로는 이 부분을 사용하여 답변을 생성합니다.
+    try:
+        response = openai.ChatCompletion.create(
+            model="gpt-4o",
+            messages=[
+                {"role": "system", "content": f"{system_prompt}\n{context}\n답변 시 출처 정보를 하단에 반드시 제공하세요."},
+                {"role": "user", "content": user_question}
+            ]
+        )
+        return response.choices[0].message.content
+    except Exception as e:
+        return f"[{char_name}의 답변]: '{user_question}'에 대해 답변하기 위해 {char_data['fact']}를 바탕으로 생각하는 중입니다... (API가 연결되면 더 유연하게 답변할 수 있어요!)"
+        
 # [3. 대화 로직 및 RAG 기능]
 if "messages" not in st.session_state:
     st.session_state.messages = []
@@ -58,11 +80,15 @@ if prompt := st.chat_input("역사에 대해 궁금한 점을 질문해보세요
 
     # 답변 생성 (실제 API 연동 시 OpenAI 호출부)
     with st.chat_message("assistant"):
-        # 사실 기반 답변 및 출처 표기
-        answer = f"[{char_name}]: {char_data['fact']} 이 순간을 잊지 마세요."
-        source_link = f"\n\n🔗 [근거 자료 확인하기]({char_data['url']})"
+        # API 호출 함수 실행
+        # st.secrets["OPENAI_API_KEY"]를 사용하여 보안 유지
+        import openai
+        openai.api_key = st.secrets["OPENAI_API_KEY"] 
         
-        full_response = answer + source_link
+        # 실제 답변 생성
+        response_text = get_persona_answer(char_name, prompt, char_data)
+        
+        full_response = response_text + f"\n\n🔗 [근거 자료 확인하기]({char_data['url']})"
         st.markdown(full_response)
         
     st.session_state.messages.append({"role": "assistant", "content": full_response})
