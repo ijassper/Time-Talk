@@ -82,7 +82,6 @@ if prompt := st.chat_input("역사에 대해 궁금한 점을 질문해보세요
     with st.chat_message("assistant"):
         # API 호출 함수 실행
         # st.secrets["OPENAI_API_KEY"]를 사용하여 보안 유지
-        import openai
         openai.api_key = st.secrets["OPENAI_API_KEY"] 
         
         # 실제 답변 생성
