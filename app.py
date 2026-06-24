@@ -45,7 +45,8 @@ with col2:
 
 # RAG생성
 def get_persona_answer(char_name, user_question, char_data):
-    client = OpenAI(api_key=st.secrets["OPENAI_API_KEY"])
+    api_key = st.secrets["OPENAI_API_KEY"]
+    client = OpenAI(api_key=api_key)
     
     # 1. 시스템 설정 (인물의 페르소나 주입)
     system_prompt = f"당신은 {char_name}입니다. {char_data['persona']}"
