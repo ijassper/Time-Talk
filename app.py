@@ -1,5 +1,5 @@
 import streamlit as st
-import openai
+from openai import OpenAI
 
 # [1. 데이터베이스] - 공공데이터를 딕셔너리로 구조화
 knowledge_base = {
@@ -45,6 +45,8 @@ with col2:
 
 # RAG생성
 def get_persona_answer(char_name, user_question, char_data):
+    client = OpenAI(api_key=st.secrets["OPENAI_API_KEY"])
+    
     # 1. 시스템 설정 (인물의 페르소나 주입)
     system_prompt = f"당신은 {char_name}입니다. {char_data['persona']}"
     
@@ -52,7 +54,6 @@ def get_persona_answer(char_name, user_question, char_data):
     context = f"다음은 당신의 삶에 대한 역사적 사실입니다: {char_data['fact']}"
     
     # 3. LLM에게 질문 (OpenAI API 호출 예시)
-    # 실제로는 이 부분을 사용하여 답변을 생성합니다.
     try:
         response = openai.ChatCompletion.create(
             model="gpt-4o",
@@ -63,7 +64,7 @@ def get_persona_answer(char_name, user_question, char_data):
         )
         return response.choices[0].message.content
     except Exception as e:
-        return f"[{char_name}의 답변]: '{user_question}'에 대해 답변하기 위해 {char_data['fact']}를 바탕으로 생각하는 중입니다... (API가 연결되면 더 유연하게 답변할 수 있어요!)"
+        return f"[{char_name}의 답변] : API 연결 오류가 발생했습니다.: {str(e)}"
         
 # [3. 대화 로직 및 RAG 기능]
 if "messages" not in st.session_state:
