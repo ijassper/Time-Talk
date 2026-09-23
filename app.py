@@ -27,15 +27,23 @@ knowledge_base = {
 
 # OpenAI 클라이언트 안전 생성 헬퍼
 def get_openai_client():
-    api_key = os.getenv("OPENAI_API_KEY")
+    api_key = None
+    # 1. Streamlit Secrets 우선 설정 확인
     try:
-        if "OPENAI_API_KEY" in st.secrets:
+        if hasattr(st, "secrets") and "OPENAI_API_KEY" in st.secrets:
             api_key = st.secrets["OPENAI_API_KEY"]
     except Exception:
         pass
     
-    if api_key:
-        return OpenAI(api_key=api_key)
+    # 2. 시스템 환경 변수 확인
+    if not api_key:
+        api_key = os.getenv("OPENAI_API_KEY")
+    
+    # 3. 공백 및 은닉 문자/따옴표 제거 (401 인증 오류 방지)
+    if api_key and isinstance(api_key, str):
+        api_key = api_key.strip().strip('"').strip("'")
+        if api_key:
+            return OpenAI(api_key=api_key)
     return None
 
 # RAG / 페르소나 답변 생성
