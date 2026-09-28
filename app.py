@@ -192,123 +192,137 @@ if "quiz_submitted" not in st.session_state:
 if "worksheet_content" not in st.session_state:
     st.session_state.worksheet_content = None
 
-# [사이드바 UI]
-st.sidebar.title("📜 타임톡 메뉴")
-
-# 사이드바 인물 선택
-char_name = st.sidebar.selectbox("대화할 인물을 선택하세요:", list(knowledge_base.keys()))
-char_data = knowledge_base[char_name]
-
-# 사이드바 🏆 학습 배지 보관함
-st.sidebar.divider()
-st.sidebar.subheader("🏆 나의 학습 배지")
-if st.session_state.badges:
-    for badge in set(st.session_state.badges):
-        st.sidebar.success(f"**{badge}**")
-else:
-    st.sidebar.info("대화를 5턴 이상 진행하고 역사 퀴즈를 맞히면 **'🏅 역사 탐험가 배지'**가 수여됩니다!")
-
-# 사이드바 👩‍🏫 교사 수업 지원
-st.sidebar.divider()
-st.sidebar.subheader("👩‍🏫 교사 수업 지원")
-if st.sidebar.button("📜 교사용 수업 활동지 생성하기", use_container_width=True):
-    if not st.session_state.messages:
-        st.sidebar.warning("대화 내역이 없습니다. 먼저 인물과 대화를 진행해주세요.")
-    else:
-        with st.spinner("학생 대화 기반 수업 활동지를 자동 작성 중입니다..."):
-            worksheet = generate_teacher_worksheet(char_name, char_data, st.session_state.messages)
-            st.session_state.worksheet_content = worksheet
-            st.sidebar.success("수업 활동지가 생성되었습니다!")
-
-if st.session_state.worksheet_content:
-    st.sidebar.download_button(
-        label="📥 활동지 다운로드 (.md)",
-        data=st.session_state.worksheet_content,
-        file_name=f"{char_name}_수업활동지.md",
-        mime="text/markdown",
-        use_container_width=True
-    )
-
-# [메인 UI]
+# [상단 헤더]
 st.title("📜 타임톡(Time-Talk)")
 st.caption("대한민국역사박물관 오픈아카이브 데이터 기반 AI 역사 인물 페르소나 챗봇")
 
-col1, col2 = st.columns([1, 2])
-with col1:
+# [3. 메인 화면 Split-Screen (2:3 좌우 2분할 레이아웃)]
+left_col, right_col = st.columns([2, 3], gap="medium")
+
+# ==========================================
+# 👈 [좌측 컬럼]: 인물 정보, 초상화, 배지, 교사 지원
+# ==========================================
+with left_col:
+    st.subheader("👤 대화 인물 선택")
+    char_name = st.selectbox("대화할 역사적 인물을 선택하세요:", list(knowledge_base.keys()), label_visibility="collapsed")
+    char_data = knowledge_base[char_name]
+
+    st.markdown(f"### {char_name} 의사/열사")
+    
+    # 초상화 이미지
     try:
         st.image(char_data["img"], use_container_width=True)
     except Exception:
         st.warning("이미지 파일을 확인하세요.")
-with col2:
-    st.write(f"### {char_name} 의사/열사")
-    st.info(f"**학습 페르소나:** {char_data['persona']}")
-    
-    # 배지 획득 현황 표시
+
+    # 페르소나 및 핵심 사실 카드
+    st.info(f"🗣️ **학습 페르소나:** {char_data['persona']}")
+    st.markdown(f"📜 **주요 역사적 사실:** {char_data['fact']}")
+
+    # 🏆 획득한 배지 보관함
+    st.divider()
+    st.subheader("🏆 나의 학습 배지")
     if st.session_state.badges:
-        st.markdown(" ".join([f"`{b}`" for b in set(st.session_state.badges)]))
+        badge_tags = " ".join([f"`{b}`" for b in set(st.session_state.badges)])
+        st.markdown(f"**획득 배지:** {badge_tags}")
+        for badge in set(st.session_state.badges):
+            st.success(f"**{badge}**")
+    else:
+        st.info("대화를 5턴 이상 진행하고 역사 퀴즈를 맞히면 **'🏅 역사 탐험가 배지'**가 수여됩니다!")
 
-# [3. 대화 로직 및 턴 관리]
-for message in st.session_state.messages:
-    with st.chat_message(message["role"]):
-        st.markdown(message["content"])
-
-if prompt := st.chat_input("역사에 대해 궁금한 점을 질문해보세요!"):
-    st.session_state.messages.append({"role": "user", "content": prompt})
-    with st.chat_message("user"):
-        st.markdown(prompt)
-
-    with st.chat_message("assistant"):
-        response_text = get_persona_answer(char_name, prompt, char_data)
-        full_response = response_text + f"\n\n🔗 [근거 자료 확인하기]({char_data['url']})"
-        st.markdown(full_response)
-        
-    st.session_state.messages.append({"role": "assistant", "content": full_response})
-
-# [4. 학생용 자기주도 학습: 5턴 이상 대화 시 역사 퀴즈 출제]
-user_turn_count = len([m for m in st.session_state.messages if m["role"] == "user"])
-
-if user_turn_count >= 5:
+    # 👩‍🏫 교사 수업 지원
     st.divider()
-    st.subheader("🎯 자기주도 학습: 독립운동가 역사 퀴즈")
-    st.caption(f"현재 대화 턴 수: {user_turn_count}턴 달성! 대화 내용을 바탕으로 퀴즈에 도전해보세요.")
+    st.subheader("👩‍🏫 교사 수업 지원")
+    if st.button("📜 교사용 수업 활동지 생성하기", use_container_width=True):
+        if not st.session_state.messages:
+            st.warning("대화 내역이 없습니다. 먼저 인물과 대화를 진행해주세요.")
+        else:
+            with st.spinner("학생 대화 기반 수업 활동지를 자동 작성 중입니다..."):
+                worksheet = generate_teacher_worksheet(char_name, char_data, st.session_state.messages)
+                st.session_state.worksheet_content = worksheet
+                st.success("수업 활동지가 생성되었습니다!")
 
-    if not st.session_state.quiz_active and not st.session_state.quiz_submitted:
-        if st.button("🧩 역사 퀴즈 풀어보기", type="primary"):
-            with st.spinner("독립운동가가 출제하는 퀴즈를 생성하고 있습니다..."):
-                st.session_state.quiz_data = generate_history_quiz(char_name, char_data, st.session_state.messages)
-                st.session_state.quiz_active = True
-                st.rerun()
+    if st.session_state.worksheet_content:
+        st.download_button(
+            label="📥 활동지 다운로드 (.md)",
+            data=st.session_state.worksheet_content,
+            file_name=f"{char_name}_수업활동지.md",
+            mime="text/markdown",
+            use_container_width=True
+        )
+        with st.expander("📄 [생성된 수업 활동지 미리보기]"):
+            st.markdown(st.session_state.worksheet_content)
 
-    if st.session_state.quiz_active and st.session_state.quiz_data:
-        quiz = st.session_state.quiz_data
-        st.info(f"**[질문] {quiz.get('question', '')}**")
+# ==========================================
+# 👉 [우측 컬럼]: 대화 창, 입력창, 퀴즈
+# ==========================================
+with right_col:
+    st.subheader(f"💬 {char_name} 님과의 실시간 대화")
+
+    # 스크롤 가능한 대화 기록 컨테이너
+    chat_container = st.container(height=520)
+    with chat_container:
+        if not st.session_state.messages:
+            st.caption(f"👋 {char_name} 의사/열사에게 궁금한 점을 질문하고 역사 이야기를 나누어보세요!")
+        for message in st.session_state.messages:
+            with st.chat_message(message["role"]):
+                st.markdown(message["content"])
+
+    # 채팅 입력창 (우측 컬럼 하단)
+    if prompt := st.chat_input(f"{char_name} 님에게 역사를 질문해보세요..."):
+        st.session_state.messages.append({"role": "user", "content": prompt})
         
-        with st.form("quiz_form"):
-            user_choice = st.radio("정답을 선택하세요:", quiz.get("options", []), key="quiz_options")
-            submit_quiz = st.form_submit_button("정답 제출하기")
+        with chat_container:
+            with st.chat_message("user"):
+                st.markdown(prompt)
+
+            with st.chat_message("assistant"):
+                response_text = get_persona_answer(char_name, prompt, char_data)
+                full_response = response_text + f"\n\n🔗 [근거 자료 확인하기]({char_data['url']})"
+                st.markdown(full_response)
+                
+        st.session_state.messages.append({"role": "assistant", "content": full_response})
+        st.rerun()
+
+    # 🎯 [학생용 자기주도 학습: 5턴 이상 대화 시 역사 퀴즈 출제]
+    user_turn_count = len([m for m in st.session_state.messages if m["role"] == "user"])
+
+    if user_turn_count >= 5:
+        st.divider()
+        st.subheader("🎯 자기주도 학습: 독립운동가 역사 퀴즈")
+        st.caption(f"현재 대화 턴 수: {user_turn_count}턴 달성! 퀴즈에 도전하고 배지를 획득해보세요.")
+
+        if not st.session_state.quiz_active and not st.session_state.quiz_submitted:
+            if st.button("🧩 역사 퀴즈 풀어보기", type="primary", use_container_width=True):
+                with st.spinner("독립운동가가 출제하는 퀴즈를 생성하고 있습니다..."):
+                    st.session_state.quiz_data = generate_history_quiz(char_name, char_data, st.session_state.messages)
+                    st.session_state.quiz_active = True
+                    st.rerun()
+
+        if st.session_state.quiz_active and st.session_state.quiz_data:
+            quiz = st.session_state.quiz_data
+            st.info(f"**[질문] {quiz.get('question', '')}**")
             
-            if submit_quiz:
-                options = quiz.get("options", [])
-                correct_idx = quiz.get("answer", 0)
-                if options and options.index(user_choice) == correct_idx:
-                    st.balloons()
-                    badge_name = "🏅 역사 탐험가 배지"
-                    if badge_name not in st.session_state.badges:
-                        st.session_state.badges.append(badge_name)
-                    st.success(f"🎉 **정답입니다!** **'{badge_name}'**를 성공적으로 획득하셨습니다!")
-                    st.info(f"📖 **해설:** {quiz.get('explanation', '')}")
-                    st.session_state.quiz_submitted = True
-                    st.session_state.quiz_active = False
-                else:
-                    st.error("❌ 아쉽습니다. 다시 정답을 고민하고 도전해보세요!")
-                    if quiz.get("explanation"):
-                        st.caption(f"💡 힌트: {quiz.get('explanation')}")
+            with st.form("quiz_form"):
+                user_choice = st.radio("정답을 선택하세요:", quiz.get("options", []), key="quiz_options")
+                submit_quiz = st.form_submit_button("정답 제출하기", use_container_width=True)
+                
+                if submit_quiz:
+                    options = quiz.get("options", [])
+                    correct_idx = quiz.get("answer", 0)
+                    if options and options.index(user_choice) == correct_idx:
+                        st.balloons()
+                        badge_name = "🏅 역사 탐험가 배지"
+                        if badge_name not in st.session_state.badges:
+                            st.session_state.badges.append(badge_name)
+                        st.success(f"🎉 **정답입니다!** **'{badge_name}'**를 성공적으로 획득하셨습니다!")
+                        st.info(f"📖 **해설:** {quiz.get('explanation', '')}")
+                        st.session_state.quiz_submitted = True
+                        st.session_state.quiz_active = False
+                    else:
+                        st.error("❌ 아쉽습니다. 다시 정답을 고민하고 도전해보세요!")
+                        if quiz.get("explanation"):
+                            st.caption(f"💡 힌트: {quiz.get('explanation')}")
 
-    if st.session_state.quiz_submitted:
-        st.success("✅ **이번 대화 세션의 퀴즈를 완료하셨습니다!** 사이드바에서 획득한 **'🏅 역사 탐험가 배지'**를 확인해보세요.")
-
-# [5. 교사 수업 지원: 생성된 수업 활동지 미리보기]
-if st.session_state.worksheet_content:
-    st.divider()
-    with st.expander("📄 [교사용 수업 활동지 미리보기]", expanded=True):
-        st.markdown(st.session_state.worksheet_content)
+        if st.session_state.quiz_submitted:
+            st.success("✅ **이번 대화 세션의 퀴즈를 완료하셨습니다!** 좌측 컬럼에서 획득한 **'🏅 역사 탐험가 배지'**를 확인해보세요.")
