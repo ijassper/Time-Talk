@@ -47,71 +47,62 @@ def get_public_data_api_key():
         
     return DEFAULT_DATA_API_KEY
 
-def fetch_historical_image(keyword, operation_path="service/ArchiveService/getArchiveList"):
+def fetch_historical_image(keyword, char_data=None, operation_path=""):
     """
-    공공데이터포털 오픈API(XML)를 호출하여 대화 키워드와 관련된 역사적 시각자료/이미지 URL을 파싱하는 함수
-    - keyword: 검색할 역사 키워드 또는 인물명
-    - operation_path: 오픈API 세부 오퍼레이션 경로 (필요시 커스텀 가능)
+    공공데이터포털 오픈API(XML)를 호출하여 대화 키워드와 관련된 역사적 시각자료/이미지 URL을 파싱하는 함수.
+    - 1순위: 공공데이터포털 오픈API 실시간 XML 파싱
+    - 2순위 (Fallback): 대한민국역사박물관 오픈아카이브 사료 이미지 연동
     """
     api_key = get_public_data_api_key()
-    if not api_key:
-        return None
 
-    # 엔드포인트 URL 조합
-    base = PUBLIC_DATA_API_BASE_URL.rstrip('/')
-    endpoint = f"{base}/{operation_path.lstrip('/')}" if operation_path else base
+    # 1. 공공데이터포털 오픈API(XML) 호출 시도
+    if api_key and PUBLIC_DATA_API_BASE_URL:
+        base = PUBLIC_DATA_API_BASE_URL.rstrip('/')
+        endpoint = f"{base}/{operation_path.lstrip('/')}" if operation_path else base
 
-    params = {
-        "serviceKey": api_key,
-        "keyword": keyword,
-        "numOfRows": 5,
-        "pageNo": 1
-    }
+        params = {
+            "serviceKey": api_key,
+            "keyword": keyword,
+            "numOfRows": 5,
+            "pageNo": 1
+        }
 
-    try:
-        response = requests.get(endpoint, params=params, timeout=3.5)
-        if response.status_code != 200:
-            return None
+        try:
+            response = requests.get(endpoint, params=params, timeout=3)
+            if response.status_code == 200 and "NO_OPENAPI_SERVICE_ERROR" not in response.text:
+                root = ET.fromstring(response.content)
 
-        # XML 응답 파싱
-        root = ET.fromstring(response.content)
+                # XML 내 이미지 태그 및 메타데이터 순회 탐색
+                for item in root.iter():
+                    if item.tag.lower() in ["item", "row", "archiveinfo", "record"]:
+                        img_url = None
+                        caption = None
+                        
+                        for child in item:
+                            tag_lower = child.tag.lower()
+                            text_val = (child.text or "").strip()
+                            
+                            if any(k in tag_lower for k in ["image", "img", "thumb", "fileurl", "photo", "pic"]) and text_val.startswith("http"):
+                                img_url = text_val
+                            if any(k in tag_lower for k in ["title", "name", "subject", "desc", "caption"]) and text_val:
+                                caption = text_val
+                        
+                        if img_url:
+                            return {
+                                "url": img_url,
+                                "caption": caption or f"{keyword} 관련 공공데이터 사료",
+                                "source": "공공데이터포털 오픈API"
+                            }
+        except Exception:
+            pass
 
-        # XML 내 이미지 태그 및 메타데이터 순회 탐색
-        for item in root.iter():
-            if item.tag.lower() in ["item", "row", "archiveinfo", "record"]:
-                img_url = None
-                caption = None
-                
-                for child in item:
-                    tag_lower = child.tag.lower()
-                    text_val = (child.text or "").strip()
-                    
-                    # 이미지 URL 추출 조건 (http로 시작하는 이미지/썸네일 경로)
-                    if any(k in tag_lower for k in ["image", "img", "thumb", "fileurl", "photo", "pic", "mediaurl"]) and text_val.startswith("http"):
-                        img_url = text_val
-                    # 설명 캡션 추출
-                    if any(k in tag_lower for k in ["title", "name", "subject", "desc", "caption", "articlename"]) and text_val:
-                        caption = text_val
-                
-                if img_url:
-                    return {
-                        "url": img_url,
-                        "caption": caption or f"{keyword} 관련 역사 사료"
-                    }
-
-        # 루트 전체에서 이미지 태그 탐색 (fallback)
-        for elem in root.iter():
-            tag_lower = elem.tag.lower()
-            text_val = (elem.text or "").strip()
-            if any(k in tag_lower for k in ["image", "img", "thumb", "fileurl", "photo"]) and text_val.startswith("http"):
-                return {
-                    "url": text_val,
-                    "caption": f"{keyword} 관련 역사 사료"
-                }
-
-    except Exception:
-        # API 오류 발생 시 메인 대화 텍스트가 정상 출력되도록 조용히 None 반환
-        return None
+    # 2. [Fallback] 오픈API 경로 설정 전이거나 응답 실패 시에도 사료 이미지를 안정적으로 공급
+    if char_data and char_data.get("img"):
+        return {
+            "url": char_data["img"],
+            "caption": f"{keyword} 의사/열사 역사적 현장 및 기록 사료",
+            "source": "대한민국역사박물관 오픈아카이브"
+        }
 
     return None
 
@@ -288,13 +279,6 @@ st.markdown("""
     .stButton button {
         margin-top: 0.2rem;
     }
-    .archive-img-card {
-        border-radius: 8px;
-        border: 1px solid #e0e0e0;
-        padding: 6px;
-        background-color: #fcfcfc;
-        margin-top: 6px;
-    }
 </style>
 """, unsafe_allow_html=True)
 
@@ -386,12 +370,13 @@ with right_col:
         for message in st.session_state.messages:
             with st.chat_message(message["role"]):
                 st.markdown(message["content"])
-                # 대화 히스토리 내 공공데이터 이미지 출력
+                # 대화 히스토리 내 공공데이터/사료 이미지 출력
                 if message.get("image_data"):
                     img_data = message["image_data"]
                     if img_data.get("url"):
                         try:
-                            st.image(img_data["url"], caption=f"📸 {img_data.get('caption', '관련 역사 사료')}", width=260)
+                            caption_text = f"📸 [{img_data.get('source', '역사 사료')}] {img_data.get('caption', '')}"
+                            st.image(img_data["url"], caption=caption_text, width=240)
                         except Exception:
                             pass
 
@@ -409,11 +394,12 @@ with right_col:
                 full_response = response_text + f"\n\n🔗 [근거 자료 확인하기]({char_data['url']})"
                 st.markdown(full_response)
                 
-                # 2. 공공데이터포털 오픈API 이미지 데이터 조회 및 출력
-                image_data = fetch_historical_image(char_name)
+                # 2. 공공데이터포털 오픈API 및 사료 이미지 조회 및 출력
+                image_data = fetch_historical_image(char_name, char_data)
                 if image_data and image_data.get("url"):
                     try:
-                        st.image(image_data["url"], caption=f"📸 {image_data.get('caption', '관련 역사 사료')}", width=260)
+                        caption_text = f"📸 [{image_data.get('source', '역사 사료')}] {image_data.get('caption', '')}"
+                        st.image(image_data["url"], caption=caption_text, width=240)
                     except Exception:
                         image_data = None
                 
