@@ -47,11 +47,48 @@ def get_public_data_api_key():
         
     return DEFAULT_DATA_API_KEY
 
-def fetch_historical_image(keyword, char_data=None, operation_path=""):
+def extract_history_keyword(char_name, prompt, response_text=""):
+    """
+    질문과 답변 대화 맥락에서 실제 질문 대상이 된 역사 인물/사건 키워드를 지능형으로 추출하는 함수
+    """
+    combined = f"{prompt} {response_text}"
+    
+    # 1. 질문 내용에 특정 인물명이 직접 언급된 경우 최우선 매칭
+    for name in knowledge_base.keys():
+        if name in prompt:
+            return name
+            
+    # 2. 주요 역사 사건/장소/사료 키워드 맵핑
+    event_map = {
+        "하얼빈": "안중근",
+        "이토": "안중근",
+        "히로부미": "안중근",
+        "뤼순": "안중근",
+        "단지": "안중근",
+        "도마": "안중근",
+        "아우내": "유관순",
+        "3.1": "유관순",
+        "삼일": "유관순",
+        "만세": "유관순",
+        "서대문": "유관순",
+        "홍커우": "윤봉길",
+        "도시락": "윤봉길",
+        "물통": "윤봉길",
+        "상하이": "윤봉길",
+        "한인애국단": "윤봉길",
+        "매헌": "윤봉길"
+    }
+    for kw, target_name in event_map.items():
+        if kw in prompt or kw in combined:
+            return target_name
+            
+    return char_name
+
+def fetch_historical_image(target_keyword, char_data=None, operation_path=""):
     """
     공공데이터포털 오픈API(XML)를 호출하여 대화 키워드와 관련된 역사적 시각자료/이미지 URL을 파싱하는 함수.
     - 1순위: 공공데이터포털 오픈API 실시간 XML 파싱
-    - 2순위 (Fallback): 대한민국역사박물관 오픈아카이브 사료 이미지 연동
+    - 2순위 (Fallback): 대한민국역사박물관 오픈아카이브 사료 이미지 지능형 매핑
     """
     api_key = get_public_data_api_key()
 
@@ -62,7 +99,9 @@ def fetch_historical_image(keyword, char_data=None, operation_path=""):
 
         params = {
             "serviceKey": api_key,
-            "keyword": keyword,
+            "keyword": target_keyword,
+            "schKeyword": target_keyword,
+            "query": target_keyword,
             "numOfRows": 5,
             "pageNo": 1
         }
@@ -90,17 +129,18 @@ def fetch_historical_image(keyword, char_data=None, operation_path=""):
                         if img_url:
                             return {
                                 "url": img_url,
-                                "caption": caption or f"{keyword} 관련 공공데이터 사료",
+                                "caption": caption or f"{target_keyword} 관련 공공데이터 사료",
                                 "source": "공공데이터포털 오픈API"
                             }
         except Exception:
             pass
 
-    # 2. [Fallback] 오픈API 경로 설정 전이거나 응답 실패 시에도 사료 이미지를 안정적으로 공급
-    if char_data and char_data.get("img"):
+    # 2. [Fallback] 타깃 키워드(인물/사건)에 일치하는 대한민국역사박물관 오픈아카이브 사료 매핑
+    matched_data = knowledge_base.get(target_keyword, char_data)
+    if matched_data and matched_data.get("img"):
         return {
-            "url": char_data["img"],
-            "caption": f"{keyword} 의사/열사 역사적 현장 및 기록 사료",
+            "url": matched_data["img"],
+            "caption": f"{target_keyword} 의사/열사 역사적 현장 및 기록 사료",
             "source": "대한민국역사박물관 오픈아카이브"
         }
 
@@ -394,8 +434,11 @@ with right_col:
                 full_response = response_text + f"\n\n🔗 [근거 자료 확인하기]({char_data['url']})"
                 st.markdown(full_response)
                 
-                # 2. 공공데이터포털 오픈API 및 사료 이미지 조회 및 출력
-                image_data = fetch_historical_image(char_name, char_data)
+                # 2. 질문 맥락 기반 타깃 역사 키워드 추출 및 시각 자료 매칭
+                target_keyword = extract_history_keyword(char_name, prompt, response_text)
+                target_data = knowledge_base.get(target_keyword, char_data)
+                
+                image_data = fetch_historical_image(target_keyword, target_data)
                 if image_data and image_data.get("url"):
                     try:
                         caption_text = f"📸 [{image_data.get('source', '역사 사료')}] {image_data.get('caption', '')}"
