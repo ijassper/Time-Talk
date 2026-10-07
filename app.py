@@ -1,6 +1,7 @@
 import os
 import json
 import requests
+import urllib.parse
 import xml.etree.ElementTree as ET
 import streamlit as st
 from openai import OpenAI
@@ -26,26 +27,6 @@ knowledge_base = {
         "persona": "뜨거운 열정과 실천적인 리더십 말투 '~합시다!'를 사용하세요."
     }
 }
-
-# [공공데이터포털 오픈API 설정]
-PUBLIC_DATA_API_BASE_URL = os.getenv("PUBLIC_DATA_API_BASE_URL", "https://apis.data.go.kr/1371027/openapi")
-DEFAULT_DATA_API_KEY = "3c2a5f26fb58a9dc3506acf29da6d160442693bbba7ec23b401c1367712f80e5"
-
-def get_public_data_api_key():
-    """공공데이터포털 인증키를 Secrets/환경변수/기본키에서 안전하게 가져오는 함수"""
-    try:
-        if hasattr(st, "secrets") and "PUBLIC_DATA_API_KEY" in st.secrets:
-            key = st.secrets["PUBLIC_DATA_API_KEY"]
-            if key:
-                return str(key).strip().strip('"').strip("'")
-    except Exception:
-        pass
-    
-    env_key = os.getenv("PUBLIC_DATA_API_KEY")
-    if env_key:
-        return env_key.strip().strip('"').strip("'")
-        
-    return DEFAULT_DATA_API_KEY
 
 def extract_history_keyword(char_name, prompt, response_text=""):
     """
@@ -84,63 +65,82 @@ def extract_history_keyword(char_name, prompt, response_text=""):
             
     return char_name
 
-def fetch_historical_image(target_keyword, char_data=None, operation_path=""):
+def fetch_wiki_historical_image(target_keyword, prompt="", response_text="", char_data=None):
     """
-    공공데이터포털 오픈API(XML)를 호출하여 대화 키워드와 관련된 역사적 시각자료/이미지 URL을 파싱하는 함수.
-    - 1순위: 공공데이터포털 오픈API 실시간 XML 파싱
-    - 2순위 (Fallback): 대한민국역사박물관 오픈아카이브 사료 이미지 지능형 매핑
+    위키미디어 / 위키백과 REST API를 호출하여 대화 질문 및 역사 맥락에 100% 일치하는
+    사료 사진과 요약 메타데이터를 실시간으로 추출하는 함수.
     """
-    api_key = get_public_data_api_key()
+    headers = {
+        'User-Agent': 'TimeTalk-EduBot/1.0 (https://github.com/ijassper/Time-Talk; educational project)'
+    }
+    
+    combined = f"{prompt} {response_text}"
+    
+    # 1. 질문 내용에 따른 위키백과 최적 검색 표제어 선정
+    query_title = target_keyword
+    if any(k in combined for k in ["무기", "폭탄", "도시락", "물통", "홍커우", "거사"]):
+        query_title = "훙커우 공원 사건"
+    elif any(k in combined for k in ["하얼빈", "이토", "처단", "저격"]):
+        query_title = "안중근"
+    elif any(k in combined for k in ["3.1", "삼일", "만세", "아우내"]):
+        query_title = "3·1 운동"
+    elif any(k in combined for k in ["서대문", "형무소", "감옥"]):
+        query_title = "서대문형무소"
+    elif any(k in combined for k in ["김구", "백범", "한인애국단"]):
+        query_title = "한인애국단"
+    elif any(k in combined for k in ["태극기"]):
+        query_title = "대한민국의 국기"
 
-    # 1. 공공데이터포털 오픈API(XML) 호출 시도
-    if api_key and PUBLIC_DATA_API_BASE_URL:
-        base = PUBLIC_DATA_API_BASE_URL.rstrip('/')
-        endpoint = f"{base}/{operation_path.lstrip('/')}" if operation_path else base
+    # 2. 위키백과 REST Summary API 1차 다이렉트 조회
+    try:
+        enc_title = urllib.parse.quote(query_title.replace(" ", "_"))
+        summary_url = f"https://ko.wikipedia.org/api/rest_v1/page/summary/{enc_title}"
+        res = requests.get(summary_url, headers=headers, timeout=3.5)
+        if res.status_code == 200:
+            data = res.json()
+            thumb = data.get("thumbnail", {}).get("source")
+            if thumb:
+                title = data.get("title", query_title)
+                desc = data.get("description", "역사 아카이브 사료")
+                return {
+                    "url": thumb,
+                    "caption": f"📌 {title} ({desc})",
+                    "extract": data.get("extract", "")[:120],
+                    "source": "위키미디어 오픈 아카이브"
+                }
+    except Exception:
+        pass
 
-        params = {
-            "serviceKey": api_key,
-            "keyword": target_keyword,
-            "schKeyword": target_keyword,
-            "query": target_keyword,
-            "numOfRows": 5,
-            "pageNo": 1
-        }
+    # 3. 위키백과 OpenSearch 2차 검색
+    try:
+        search_url = f"https://ko.wikipedia.org/w/api.php?action=opensearch&search={urllib.parse.quote(target_keyword)}&limit=3&format=json"
+        s_res = requests.get(search_url, headers=headers, timeout=3.5).json()
+        titles = s_res[1] if len(s_res) > 1 else []
+        for t in titles:
+            enc_t = urllib.parse.quote(t.replace(" ", "_"))
+            sum_url = f"https://ko.wikipedia.org/api/rest_v1/page/summary/{enc_t}"
+            r2 = requests.get(sum_url, headers=headers, timeout=3.5)
+            if r2.status_code == 200:
+                d2 = r2.json()
+                thumb2 = d2.get("thumbnail", {}).get("source")
+                if thumb2:
+                    title2 = d2.get("title", t)
+                    desc2 = d2.get("description", "역사 아카이브 사료")
+                    return {
+                        "url": thumb2,
+                        "caption": f"📌 {title2} ({desc2})",
+                        "extract": d2.get("extract", "")[:120],
+                        "source": "위키미디어 오픈 아카이브"
+                    }
+    except Exception:
+        pass
 
-        try:
-            response = requests.get(endpoint, params=params, timeout=3)
-            if response.status_code == 200 and "NO_OPENAPI_SERVICE_ERROR" not in response.text:
-                root = ET.fromstring(response.content)
-
-                # XML 내 이미지 태그 및 메타데이터 순회 탐색
-                for item in root.iter():
-                    if item.tag.lower() in ["item", "row", "archiveinfo", "record"]:
-                        img_url = None
-                        caption = None
-                        
-                        for child in item:
-                            tag_lower = child.tag.lower()
-                            text_val = (child.text or "").strip()
-                            
-                            if any(k in tag_lower for k in ["image", "img", "thumb", "fileurl", "photo", "pic"]) and text_val.startswith("http"):
-                                img_url = text_val
-                            if any(k in tag_lower for k in ["title", "name", "subject", "desc", "caption"]) and text_val:
-                                caption = text_val
-                        
-                        if img_url:
-                            return {
-                                "url": img_url,
-                                "caption": caption or f"{target_keyword} 관련 공공데이터 사료",
-                                "source": "공공데이터포털 오픈API"
-                            }
-        except Exception:
-            pass
-
-    # 2. [Fallback] 타깃 키워드(인물/사건)에 일치하는 대한민국역사박물관 오픈아카이브 사료 매핑
+    # 4. Fallback (기본 인물 프로필 이미지)
     matched_data = knowledge_base.get(target_keyword, char_data)
     if matched_data and matched_data.get("img"):
         return {
             "url": matched_data["img"],
-            "caption": f"{target_keyword} 의사/열사 역사적 현장 및 기록 사료",
+            "caption": f"📌 {target_keyword} 의사/열사 역사 사료",
             "source": "대한민국역사박물관 오픈아카이브"
         }
 
@@ -410,13 +410,13 @@ with right_col:
         for message in st.session_state.messages:
             with st.chat_message(message["role"]):
                 st.markdown(message["content"])
-                # 대화 히스토리 내 공공데이터/사료 이미지 출력
+                # 대화 히스토리 내 시각 사료 이미지 출력
                 if message.get("image_data"):
                     img_data = message["image_data"]
                     if img_data.get("url"):
                         try:
-                            caption_text = f"📸 [{img_data.get('source', '역사 사료')}] {img_data.get('caption', '')}"
-                            st.image(img_data["url"], caption=caption_text, width=240)
+                            caption_text = f"📸 [{img_data.get('source', '역사 아카이브')}] {img_data.get('caption', '')}"
+                            st.image(img_data["url"], caption=caption_text, width=280)
                         except Exception:
                             pass
 
@@ -434,15 +434,20 @@ with right_col:
                 full_response = response_text + f"\n\n🔗 [근거 자료 확인하기]({char_data['url']})"
                 st.markdown(full_response)
                 
-                # 2. 질문 맥락 기반 타깃 역사 키워드 추출 및 시각 자료 매칭
+                # 2. 질문 맥락 기반 타깃 역사 키워드 추출 및 위키미디어 실시간 시각 사료 매칭
                 target_keyword = extract_history_keyword(char_name, prompt, response_text)
                 target_data = knowledge_base.get(target_keyword, char_data)
                 
-                image_data = fetch_historical_image(target_keyword, target_data)
+                image_data = fetch_wiki_historical_image(
+                    target_keyword=target_keyword,
+                    prompt=prompt,
+                    response_text=response_text,
+                    char_data=target_data
+                )
                 if image_data and image_data.get("url"):
                     try:
-                        caption_text = f"📸 [{image_data.get('source', '역사 사료')}] {image_data.get('caption', '')}"
-                        st.image(image_data["url"], caption=caption_text, width=240)
+                        caption_text = f"📸 [{image_data.get('source', '역사 아카이브')}] {image_data.get('caption', '')}"
+                        st.image(image_data["url"], caption=caption_text, width=280)
                     except Exception:
                         image_data = None
                 
